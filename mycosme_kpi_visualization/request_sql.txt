@@ -1,0 +1,209 @@
+WITH log AS (
+  SELECT
+     event_date AS date
+    ,user_pseudo_id AS cookie_id
+    ,istyle_id
+    ,session_id
+    ,event_num AS hit_id
+    ,event_label
+    ,event_category
+    ,event_action
+    ,event_button_position
+    ,SAFE_CAST(event_order_position AS INT64) AS event_order_position
+    ,box_type 
+    ,SAFE_CAST(delivery_order AS INT64) AS delivery_order
+    ,delivery_logic 
+    ,feed_id
+    ,content_type
+    ,impression_type
+    ,content_id
+    ,CASE
+        WHEN event_category = 'purchase' AND event_action = 'buy' THEN 'TRANSACTION'
+        WHEN event_name = 'custom_event' THEN 'EVENT'
+        WHEN event_name = 'custom_impression' THEN 'IMPRESSION'
+        WHEN event_name IN ('custom_screen_view','custom_web_view') THEN 'PAGE'
+     END AS type
+    ,CASE
+        WHEN event_name = 'custom_screen_view' THEN firebase_screen
+        WHEN event_name = 'custom_web_view'    THEN REGEXP_REPLACE(custom_web_url,r'https://','')
+        WHEN event_name = 'custom_impression'  THEN firebase_screen -- ★追加
+        ELSE NULL --COALESCE(firebase_screen,REGEXP_REPLACE(custom_web_url,r'https://','')) -- ★削除：取得不可
+     END AS page
+  FROM
+    `istyle.co.jp:istyle-inc.simple_firebase.app_screen_event_log_*`
+  WHERE
+    _TABLE_SUFFIX = FORMAT_DATE('%Y%m%d','2023-04-01')
+  AND NOT (event_name = 'custom_screen_view' AND firebase_screen = 'web_view')
+  AND NOT REGEXP_CONTAINS(app_version,'debug') 
+)
+  
+  
+, imp AS (
+  SELECT
+     date
+    ,type
+    ,CASE
+        WHEN (type     = 'EVENT') THEN '01_ブランディング' -- マイコスメ追加                                           
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-4-1')   THEN '02_新着イベント' -- マイコスメ追加
+        WHEN (box_type = 'home_news_product_history'AND content_type = '商品')　THEN '03_閲覧履歴'   -- マイコスメ追加
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-7-1')   THEN '04_閲覧履歴からのおすすめ' -- マイコスメ追加
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-6-1')   THEN '05_あなたにおすすめ' -- マイコスメ追加
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-8-1')   THEN '06_あなたとタイプの近い人がチェック' -- マイコスメ追加
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-9-1')   THEN '07_購入履歴からのおすすめ商品' -- マイコスメ追加
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-10-1')  THEN '08_購入履歴からのおすすめ情報' -- マイコスメ追加
+        WHEN (box_type = 'today_product'            AND content_type = '商品')  THEN '09_本日発売' -- マイコスメ追加
+        WHEN (box_type = 'comingsoon_product'       AND content_type = '商品')  THEN '10_まもなく発売' -- マイコスメ追加
+        WHEN (box_type = 'new_registration_product' AND content_type = '商品')  THEN '11_新着商品' -- マイコスメ追加     
+        WHEN (box_type = 'nakamen'                  AND feed_id = 'APP-12-1')  THEN '12_ブランド情報' -- ブランドフォロー促進追加（古谷）
+     END AS position
+    ,'ビューアブルインプレッション' AS action
+    ,cookie_id
+    ,istyle_id
+    ,session_id
+    ,hit_id
+    ,event_label
+    ,delivery_order
+    ,delivery_logic
+    ,content_id
+    ,CASE
+        WHEN type = 'EVENT' THEN event_label
+        ELSE content_id
+     END AS content
+    ,page
+  
+  FROM
+    log
+  WHERE (
+          type = 'IMPRESSION'
+      AND impression_type = 'mrc_viewable'
+      AND (
+               (box_type = 'nakamen'                  AND feed_id = 'APP-4-1')
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-6-1')
+            OR (box_type = 'today_product'            AND content_type = '商品')
+            OR (box_type = 'comingsoon_product'       AND content_type = '商品')
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-7-1')
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-8-1')
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-9-1')
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-10-1')
+            OR (box_type = 'new_registration_product' AND content_type = '商品')
+            OR (box_type = 'home_news_product_history'AND content_type = '商品') -- 土佐追加
+            OR (box_type = 'nakamen'                  AND feed_id = 'APP-12-1') -- ブランドフォロー促進追加（古谷）
+      )
+      AND page = 'home_news'
+  )
+  OR (
+          type = 'EVENT'
+      AND event_category = 'home_news_branding'     
+      AND event_action = 'display'
+  )
+)
+  
+, event AS (
+  SELECT
+     date
+    ,type
+    ,CASE
+        WHEN event_category        = 'home_news_branding'       THEN '01_ブランディング'
+        WHEN event_category        = 'event_information'        THEN '02_新着イベント'
+        WHEN event_category        = 'home_news_product_history' THEN '03_閲覧履歴'                  --土佐追加
+        WHEN event_button_position = 'home_news_product_history' THEN '03_閲覧履歴'                  --土佐追加
+        WHEN event_category        = 'ai_product_view'          THEN '04_閲覧履歴からのおすすめ'
+        WHEN event_button_position = 'ai_product_view'          THEN '04_閲覧履歴からのおすすめ'
+        WHEN event_category        = 'rule_product_view'        THEN '05_あなたにおすすめ'
+        WHEN event_button_position = 'rule_product_view'        THEN '05_あなたにおすすめ'
+        WHEN event_category        = 'rule_product_action'      THEN '06_あなたとタイプの近い人がチェック'
+        WHEN event_button_position = 'rule_product_action'      THEN '06_あなたとタイプの近い人がチェック'
+        WHEN event_category        = 'rule_product_purchase'    THEN '07_購入履歴からのおすすめ商品'
+        WHEN event_button_position = 'rule_product_purchase'    THEN '07_購入履歴からのおすすめ商品'
+        WHEN event_button_position = 'rule_article_purchase'    THEN '08_購入履歴からのおすすめ情報'
+        WHEN event_category        = 'rule_article_purchase'    THEN '08_購入履歴からのおすすめ情報'
+        WHEN event_category        = 'today_product'            THEN '09_本日発売'
+        WHEN event_button_position = 'today_product'            THEN '09_本日発売'
+        WHEN event_category        = 'comingsoon_product'       THEN '10_まもなく発売'
+        WHEN event_button_position = 'comingsoon_product'       THEN '10_まもなく発売'
+        WHEN event_category        = 'new_registration_product' THEN '11_新着商品'
+        WHEN event_button_position = 'new_registration_product' THEN '11_新着商品'      
+        WHEN event_category        = 'brand_news'               THEN '12_ブランド情報' 　　　　　　　　　　　　　　　    -- ブランドフォロー促進追加（古谷）
+        WHEN event_category        = 'user_hearing_brand'       THEN '13_ブランドフォロー促進（モーダル）' 　　　　　　　-- ブランドフォロー促進追加（古谷）
+        WHEN event_category        = 'user_hearing_brand_favorite_continue' THEN '13_ブランドフォロー促進（モーダル）' -- ブランドフォロー促進追加（古谷）
+     END AS position
+     ,CASE
+        WHEN (event_action = 'tap') THEN 'コンテンツタップ'
+        WHEN (event_category = 'product_like' AND event_action = 'create') THEN '商品Like作成'
+        WHEN (event_category in ('deguchi_shopping','purchase')) THEN 'カートインタップ'
+        WHEN (event_action = 'display') THEN '表示' -- ブランドフォロー促進追加（古谷）
+     END AS action
+    ,cookie_id
+    ,istyle_id
+    ,session_id
+    ,hit_id
+    ,event_label
+    ,CASE
+        WHEN event_category = 'event_information' THEN event_order_position
+        ELSE delivery_order
+     END AS delivery_order
+    ,delivery_logic
+    ,content_id
+    ,event_label AS content
+    ,page
+  
+  FROM
+    log
+  WHERE
+      type = 'EVENT'
+  AND (
+           (event_category = 'home_news_branding'       AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'event_information'        AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'rule_product_view'        AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'rule_product_view') -- マイコスメ追加
+        OR (event_category = 'today_product'            AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'today_product') -- マイコスメ追加
+        OR (event_category in ('deguchi_shopping','purchase') AND event_button_position = 'today_product') -- マイコスメ追加
+        OR (event_category = 'comingsoon_product'       AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'comingsoon_product') -- マイコスメ追加
+        OR (event_category = 'ai_product_view'          AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'ai_product_view') -- マイコスメ追加
+        OR (event_category = 'rule_product_action'      AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'rule_product_action') -- マイコスメ追加
+        OR (event_category = 'rule_product_purchase'    AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'rule_product_purchase') -- マイコスメ追加
+        OR (event_category in ('deguchi_shopping','purchase') AND event_button_position = 'rule_product_purchase') -- マイコスメ追加
+        OR (event_category = 'rule_article_purchase'    AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'new_registration_product' AND event_action = 'tap') -- マイコスメ追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'new_registration_product') -- マイコスメ追加
+        OR (event_category = 'home_news_product_history'AND event_action = 'tap')                                                             --マイコスメ追加土佐追加
+        OR (event_category = 'product_like'             AND event_action = 'create' AND event_button_position = 'home_news_product_history')  --マイコスメ追加土佐追加
+        OR (event_category = 'brand_news'               AND event_action = 'tap')              -- ブランドフォロー促進追加（古谷）
+        OR (event_category = 'user_hearing_brand'       AND event_action = 'display')          -- ブランドフォロー促進追加（古谷）
+        OR (event_category = 'user_hearing_brand_favorite_continue' AND event_action = 'tap')  -- ブランドフォロー促進追加（古谷）
+  )
+)
+  
+  
+SELECT
+  *
+FROM (
+  SELECT
+      position
+      ,act.content AS content_id
+      ,act.action
+      ,count(act.istyle_id) as pv
+      ,count(DISTINCT act.istyle_id) as uu
+  FROM (
+      SELECT * FROM imp
+      UNION ALL
+      SELECT * FROM event
+  ) act
+  WHERE
+    1 = 1
+    AND act.content = '10144488'
+    AND position = '07_購入履歴からのおすすめ商品'
+    AND action IN ('コンテンツタップ', 'ビューアブルインプレッション')
+  GROUP BY 1,2,3
+)
+PIVOT (
+  SUM(pv) AS total_pv,
+  SUM(uu) AS total_uu
+  FOR action IN ('ビューアブルインプレッション', 'コンテンツタップ')
+)
+ORDER BY position, content_id
