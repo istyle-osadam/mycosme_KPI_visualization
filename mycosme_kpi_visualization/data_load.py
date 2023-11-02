@@ -23,6 +23,7 @@ bqstorage_client = bigquery_storage.BigQueryReadClient()
 # df = bq_client.query(data).to_dataframe()
 # print(df.columns)
 
+#new_comment
 def get_data():
     GCP_PROJECT = "ml-development-344502"
 
