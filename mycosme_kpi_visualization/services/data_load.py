@@ -30,7 +30,7 @@ def get_data():
     bq_client = bigquery.Client(project=GCP_PROJECT)
     bqstorage_client = bigquery_storage.BigQueryReadClient()
 
-    f  = open('mycosme_KPI_visualization/mycosme_kpi_visualization/request_sql.txt', 'r', encoding='UTF-8') 
+    f  = open('../mycosme_kpi_visualization/request_sql.txt', 'r', encoding='UTF-8') 
     data = f.read()
     QUERY = (data)
     query_job = bq_client.query(QUERY)  # API request

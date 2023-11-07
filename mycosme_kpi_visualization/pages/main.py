@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from data_load import get_data
+import sys
+from pathlib import Path
+print(sys.path)
+sys.path.append(str(Path(__file__).parent.parent))
+from services.data_load import get_data
 
 # ==================================================================================
 # データ準備
